@@ -4,6 +4,7 @@ object FileNames {
     const val metadata = "metadata.json"
     const val bookmark = "bookmark.json"
     const val bookinfo = "bookinfo.json"
+    const val kosync = "kosync.json"
     const val statistics = "statistics.json"
     const val sasayakiMatches = "sasayaki_matches.json"
     const val sasayakiPlayback = "sasayaki_playback.json"
