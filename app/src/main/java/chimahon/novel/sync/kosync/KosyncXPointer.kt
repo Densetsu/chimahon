@@ -36,7 +36,9 @@ object KosyncXPointer {
         val runs = KosyncChapterDom.textNodes(body)
         val total = runs.sumOf { it.chars }
         if (progress <= 0.0 || total <= 0) return prefix
-        val target = ceil(total * progress).toInt()
+        // 43 × (14 / 43) is 14.000000000000002: the epsilon keeps a fraction that resolves to a block start
+        // on that block.
+        val target = ceil(total * progress - 1e-9).toInt()
         var running = 0
         var targetNode: Node? = null
         var lastNode: Node? = null

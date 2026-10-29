@@ -101,6 +101,19 @@ class KosyncXPointerTest {
     }
 
     @Test
+    fun `a one-character paragraph keeps its fixed point`() {
+        // p[1] 14, p[2] 1, p[3] 28 counted characters: 43 × (14 / 43) overshoots 14 in floating point.
+        val narrow = checkNotNull(
+            KosyncChapterDom.parseBody(
+                "<html><body><p>あいうえおかきくけこさしすせ</p><p>そ</p><p>たちつてとなにぬねのはひふへほまみむめもやゆよらりるれろ</p></body></html>",
+            ),
+        )
+        val resolved = KosyncXPointer.resolve("/body/DocFragment[1]/body/p[2]", narrow).shouldNotBeNull()
+        resolved.fraction shouldBe (14.0 / 43.0 plusOrMinus 1e-9)
+        KosyncXPointer.forProgress(0, narrow, resolved.fraction) shouldBe "/body/DocFragment[1]/body/p[2]"
+    }
+
+    @Test
     fun `parses the spine index from the DocFragment step`() {
         KosyncXPointer.spineIndex("/body/DocFragment[11]/body/div/p[5]/text().123") shouldBe 10
         KosyncXPointer.spineIndex("/body/DocFragment/body") shouldBe 0
