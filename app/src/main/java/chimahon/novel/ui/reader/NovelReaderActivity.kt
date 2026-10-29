@@ -18,6 +18,7 @@ import androidx.core.view.WindowCompat
 import chimahon.novel.data.BookMetadata
 import chimahon.novel.data.BookStorage
 import chimahon.novel.data.NovelReaderSettings
+import chimahon.novel.sync.kosync.KosyncReaderLifecycle
 import chimahon.novel.sync.ttu.ReaderLifecycleAutoSyncEvent
 import chimahon.novel.sync.ttu.readerLifecycleAutoSyncPlan
 import chimahon.ocr.OcrLanguage
@@ -58,6 +59,7 @@ open class NovelReaderActivity : ComponentActivity() {
     protected var isPopupActive by androidx.compose.runtime.mutableStateOf(false)
 
     protected var readerViewModel by androidx.compose.runtime.mutableStateOf<ReaderViewModel?>(null)
+    private val kosyncLifecycle = KosyncReaderLifecycle(this) { readerViewModel }
     protected var bookMetadata: BookMetadata? = null
     protected var showHud by androidx.compose.runtime.mutableStateOf(false)
 
@@ -262,6 +264,7 @@ open class NovelReaderActivity : ComponentActivity() {
             )
             if (plan.importOnForeground) {
                 vm.syncAfterForeground()
+                kosyncLifecycle.pullAfterForeground()
             }
         }
         setSystemBarsVisibility(showHud)
@@ -281,6 +284,7 @@ open class NovelReaderActivity : ComponentActivity() {
         readerViewModel?.let { vm ->
             vm.flushReaderState()
             vm.flushSyncExport()
+            kosyncLifecycle.pushOnStop()
         }
     }
 

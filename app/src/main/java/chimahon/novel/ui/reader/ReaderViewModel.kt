@@ -855,6 +855,17 @@ class ReaderViewModel(
         }
     }
 
+    /**
+     * Another sync backend wrote a newer position into storage while this book was open (KOReader
+     * sync on resume): re-seed from it and re-render the current chapter there.
+     */
+    fun onPositionImported() {
+        scope.launch {
+            reseedFromStorage()
+            reloadCurrentChapter()
+        }
+    }
+
     /** Export-on-close: persist position first, then push. */
     fun flushSyncExport() {
         val sync = ttuSyncManager ?: return

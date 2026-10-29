@@ -29,6 +29,7 @@ import chimahon.novel.interactor.RegisterLocalNovelHome
 import chimahon.novel.reader.assessTextDamage
 import chimahon.novel.reader.cleanBrokenBookFiles
 import chimahon.novel.source.LocalNovelFiles
+import chimahon.novel.sync.kosync.KosyncManager
 import chimahon.novel.sync.ttu.SyncDirection
 import chimahon.novel.sync.ttu.TtuBookRef
 import chimahon.novel.sync.ttu.TtuSyncManager
@@ -222,6 +223,14 @@ fun ReaderScreen(
                         )
                     }
                 }
+            }
+
+            // KOReader sync pull (blocking, for the same reason): a position pushed from
+            // another device is the one the book opens at.
+            val kosyncManager = runCatching { Injekt.get<KosyncManager>() }.getOrNull()
+            if (kosyncManager?.canPull == true) {
+                loadingMessage = "Syncing reading progress..."
+                withContext(Dispatchers.IO) { runCatching { kosyncManager.pull(rootUrl) } }
             }
 
             // Constructed off-main: init does disk reads (settings, bookmark,
