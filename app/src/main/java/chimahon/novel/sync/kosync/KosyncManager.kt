@@ -35,8 +35,9 @@ class KosyncManager(
 
     /**
      * Moves the book to a newer position from another device and returns the bookmark it became,
-     * or null when the local position stands. Callers wrap it in runCatching: a server problem
-     * must never keep a book from opening.
+     * or null when the local position stands or when the position could not be written where the
+     * reader resumes from. Callers wrap it in runCatching: a server problem must never keep a book
+     * from opening.
      */
     suspend fun pull(bookDir: File): Bookmark? {
         if (!session.canPull) return null
@@ -49,7 +50,7 @@ class KosyncManager(
         val percentage = remote.percentage ?: return null
 
         val bookmark = remoteBookmark(bookDir, remote.progress, percentage, remote.timestamp) ?: return null
-        positionStore.save(bookDir, bookmark)
+        if (!positionStore.save(bookDir, bookmark)) return null
         saveState(bookDir, KosyncBookState(bookmark.characterCount, remote.timestamp))
         return bookmark
     }

@@ -28,8 +28,9 @@ class KosyncManagerTest {
     private val positions = object : KosyncPositionStore {
         var bookmark: Bookmark? = null
         override suspend fun load(bookDir: File): Bookmark? = bookmark
-        override suspend fun save(bookDir: File, bookmark: Bookmark) {
+        override suspend fun save(bookDir: File, bookmark: Bookmark): Boolean {
             this.bookmark = bookmark
+            return true
         }
     }
 
@@ -186,6 +187,31 @@ class KosyncManagerTest {
         pull()
 
         positions.bookmark?.characterCount shouldBe 30
+    }
+
+    @Test
+    fun `a position the store cannot write is neither applied nor recorded as synced`() {
+        val local = Bookmark(chapterIndex = 0, progress = 0.1, characterCount = 2, lastModified = 1_000_000L)
+        positions.bookmark = local
+        val unwritable = KosyncManager(
+            session = KosyncSession(preferences, api, deviceName = "Chimahon Test"),
+            positionStore = object : KosyncPositionStore by positions {
+                override suspend fun save(bookDir: File, bookmark: Bookmark): Boolean = false
+            },
+            books = FakeBooks(null),
+        )
+        api.remote = remoteProgress(percentage = 0.75, timestamp = 2_000L)
+
+        runBlocking { unwritable.pull(bookDir) }.shouldBeNull()
+        api.pulls.size shouldBe 1
+        positions.bookmark shouldBe local
+        File(bookDir, FileNames.kosync).exists() shouldBe false
+
+        // Nothing was recorded as synced, so a moved position goes out, even at the count the pull
+        // would have recorded.
+        positions.bookmark = Bookmark(chapterIndex = 1, progress = 0.5, characterCount = 30, lastModified = 3_000_000L)
+        push()
+        api.puts.single().percentage shouldBe 0.75
     }
 
     @Test

@@ -4,6 +4,7 @@ import chimahon.novel.data.BookStorage
 import chimahon.novel.data.Bookmark
 import tachiyomi.domain.novel.model.Novel
 import tachiyomi.domain.novel.model.NovelChapterUpdate
+import tachiyomi.domain.novel.model.isNovelReadComplete
 import tachiyomi.domain.novel.repository.NovelChapterRepository
 import tachiyomi.domain.novel.repository.NovelHistoryRepository
 import tachiyomi.domain.novel.repository.NovelRepository
@@ -12,19 +13,26 @@ import java.io.File
 /** Where a book's reading position lives, keyed by the folder the reader opens. */
 interface KosyncPositionStore {
     suspend fun load(bookDir: File): Bookmark?
-    suspend fun save(bookDir: File, bookmark: Bookmark)
+
+    /** True when [bookmark] was written where the reader resumes from. */
+    suspend fun save(bookDir: File, bookmark: Bookmark): Boolean
 }
 
 /** The `bookmark.json` sidecar: what unregistered books use. */
 object SidecarPositionStore : KosyncPositionStore {
     override suspend fun load(bookDir: File): Bookmark? = BookStorage.loadBookmark(bookDir)
-    override suspend fun save(bookDir: File, bookmark: Bookmark) = BookStorage.saveBookmark(bookmark, bookDir)
+    override suspend fun save(bookDir: File, bookmark: Bookmark): Boolean {
+        BookStorage.saveBookmark(bookmark, bookDir)
+        return true
+    }
 }
 
 /**
  * The novel's DB rows, which is where the reader resumes registered books from: the latest
  * history row picks the chapter and the chapter row carries the fraction and character count,
- * in chapter-number order like the reader's own resume. Books without a row use the sidecar.
+ * in chapter-number order like the reader's own resume. Without a novel row, or without a
+ * history row on one of the novel's chapters, the reader opens at the sidecar, so the position
+ * is read there too.
  */
 class NovelDbPositionStore(
     private val novels: NovelRepository,
@@ -35,8 +43,9 @@ class NovelDbPositionStore(
     override suspend fun load(bookDir: File): Bookmark? {
         val novel = novelFor(bookDir) ?: return SidecarPositionStore.load(bookDir)
         val sorted = chapters.getChaptersByNovelId(novel.id).sortedBy { it.chapterNumber }
-        val latest = history.getLatestHistoryByNovelId(novel.id) ?: return null
-        val index = sorted.indexOfFirst { it.id == latest.chapterId }.takeIf { it >= 0 } ?: return null
+        val latest = history.getLatestHistoryByNovelId(novel.id) ?: return SidecarPositionStore.load(bookDir)
+        val index = sorted.indexOfFirst { it.id == latest.chapterId }.takeIf { it >= 0 }
+            ?: return SidecarPositionStore.load(bookDir)
         val chapter = sorted[index]
         return Bookmark(
             chapterIndex = index,
@@ -46,14 +55,15 @@ class NovelDbPositionStore(
         )
     }
 
-    override suspend fun save(bookDir: File, bookmark: Bookmark) {
+    override suspend fun save(bookDir: File, bookmark: Bookmark): Boolean {
         val novel = novelFor(bookDir) ?: return SidecarPositionStore.save(bookDir, bookmark)
         val sorted = chapters.getChaptersByNovelId(novel.id).sortedBy { it.chapterNumber }
-        val chapter = sorted.getOrNull(bookmark.chapterIndex) ?: return
+        // No row for that chapter: report the position as not written instead of dropping it.
+        val chapter = sorted.getOrNull(bookmark.chapterIndex) ?: return false
         chapters.update(
             NovelChapterUpdate(
                 id = chapter.id,
-                read = if (bookmark.progress >= 1.0) true else null,
+                read = if (bookmark.progress.isNovelReadComplete()) true else null,
                 lastPageRead = bookmark.characterCount.toLong(),
                 progress = bookmark.progress.coerceIn(0.0, 1.0),
             ),
@@ -64,6 +74,7 @@ class NovelDbPositionStore(
             lastRead = bookmark.lastModified ?: System.currentTimeMillis(),
             timeRead = 0L,
         )
+        return true
     }
 
     private suspend fun novelFor(bookDir: File): Novel? {
