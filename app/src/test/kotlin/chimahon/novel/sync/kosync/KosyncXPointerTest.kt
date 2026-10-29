@@ -78,6 +78,9 @@ class KosyncXPointerTest {
     @Test
     fun `rejects pointers that are not positions in this chapter`() {
         KosyncXPointer.resolve("/body/DocFragment[1]/body/div[1]/p[9]", body).shouldBeNull()
+        // An index or offset too large for an Int is not read as some other position.
+        KosyncXPointer.resolve("/body/DocFragment[1]/body/div[1]/p[99999999999]", body).shouldBeNull()
+        KosyncXPointer.resolve("/body/DocFragment[1]/body/div[1]/p[1]/text().99999999999", body).shouldBeNull()
         KosyncXPointer.resolve("/body/DocFragment[2]/body/section[1]", body).shouldBeNull()
         KosyncXPointer.resolve("Chapter 5", body).shouldBeNull()
         KosyncXPointer.resolve("42", body).shouldBeNull()
@@ -117,6 +120,7 @@ class KosyncXPointerTest {
     fun `parses the spine index from the DocFragment step`() {
         KosyncXPointer.spineIndex("/body/DocFragment[11]/body/div/p[5]/text().123") shouldBe 10
         KosyncXPointer.spineIndex("/body/DocFragment/body") shouldBe 0
+        KosyncXPointer.spineIndex("/body/DocFragment[99999999999]/body").shouldBeNull()
         KosyncXPointer.spineIndex("12").shouldBeNull()
         KosyncXPointer.spineIndex("Chapter 5").shouldBeNull()
         KosyncXPointer.spineIndex("").shouldBeNull()

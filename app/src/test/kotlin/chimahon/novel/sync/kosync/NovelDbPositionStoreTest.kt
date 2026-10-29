@@ -75,6 +75,17 @@ class NovelDbPositionStoreTest {
     }
 
     @Test
+    fun `a failed chapter update is reported`() {
+        registered(chapter(id = 11L, number = 1f), chapter(id = 12L, number = 2f))
+        coEvery { chapters.update(any()) } returns false
+        val moved = Bookmark(chapterIndex = 1, progress = 0.5, characterCount = 600, lastModified = 10_000L)
+
+        runBlocking { store.save(bookDir, moved) } shouldBe false
+
+        coVerify(exactly = 0) { history.upsertHistory(any(), any(), any()) }
+    }
+
+    @Test
     fun `a registered novel reads and writes its rows in chapter-number order`() {
         // Repository order is not reading order: id 12 is the second chapter.
         registered(

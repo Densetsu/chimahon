@@ -30,6 +30,7 @@ class KosyncCorpusTest {
         var chapters = 0
         var pointers = 0
         var notXml = 0
+        val notXmlNames = mutableListOf<String>()
         val problems = mutableListOf<String>()
         for (epub in epubs) {
             ZipFile(epub).use { zip ->
@@ -42,6 +43,7 @@ class KosyncCorpusTest {
                     val body = KosyncChapterDom.parseBody(xhtml)
                     if (body == null) {
                         notXml++
+                        notXmlNames += "${epub.name}!${entry.name}"
                         continue
                     }
                     chapters++
@@ -70,6 +72,7 @@ class KosyncCorpusTest {
             "corpus: ${epubs.size} EPUBs, $chapters chapters, $pointers pointers, ${problems.size} problems, " +
                 "$notXml chapters not XML",
         )
+        notXmlNames.take(20).forEach { println("not XML: $it") }
         problems.take(20).forEach(::println)
         problems shouldBe emptyList()
     }

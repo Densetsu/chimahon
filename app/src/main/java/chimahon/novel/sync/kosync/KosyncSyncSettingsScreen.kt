@@ -31,6 +31,7 @@ import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.PreferenceScreen
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import tachiyomi.presentation.core.components.material.Scaffold
 import uy.kohesive.injekt.Injekt
@@ -116,15 +117,24 @@ private fun KosyncLogin(preferences: KosyncPreferences) {
         busy = true
         message = null
         scope.launch {
-            val credentials = KosyncPreferences.credentialsFor(serverUrl, username, password)
-            runCatching { session.signIn(credentials, register) }
-                .onSuccess {
-                    password = ""
-                    signedIn = true
-                    report(if (register) "Account created and signed in." else "Signed in.", false)
+            try {
+                val credentials = KosyncPreferences.credentialsFor(serverUrl, username, password)
+                session.signIn(credentials, register)
+                password = ""
+                signedIn = true
+                val confirmation = when {
+                    register -> "Account created and signed in."
+                    preferences.enabled().get() -> "Signed in."
+                    else -> "Signed in. Sync starts once Enable is switched on."
                 }
-                .onFailure { report(it.kosyncUserMessage(), true) }
-            busy = false
+                report(confirmation, false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                report(e.kosyncUserMessage(), true)
+            } finally {
+                busy = false
+            }
         }
     }
 

@@ -228,9 +228,15 @@ fun ReaderScreen(
             // KOReader sync pull (blocking, for the same reason): a position pushed from
             // another device is the one the book opens at.
             val kosyncManager = runCatching { Injekt.get<KosyncManager>() }.getOrNull()
-            if (kosyncManager?.canPull == true) {
+            val pulledPosition = if (kosyncManager?.canPull == true) {
                 loadingMessage = "Syncing reading progress..."
-                withContext(Dispatchers.IO) { runCatching { kosyncManager.pull(rootUrl) } }
+                withContext(Dispatchers.IO) {
+                    runCatching { kosyncManager.pull(rootUrl) }
+                        .onFailure { Log.w("NovelReader", "kosync pull failed", it) }
+                        .getOrNull()
+                }
+            } else {
+                null
             }
 
             // Constructed off-main: init does disk reads (settings, bookmark,
@@ -242,7 +248,9 @@ fun ReaderScreen(
                     settings = settings,
                     scope = scope,
                     openNovelId = novelId,
-                    openChapterIndex = chapterIndex,
+                    // A position pulled from another device wins over the chapter the launch named: the view
+                    // model then seeds from the latest history row, which the pull just wrote.
+                    openChapterIndex = if (pulledPosition != null) null else chapterIndex,
                 )
             }
             ReaderLoadState.Ready(viewModel)

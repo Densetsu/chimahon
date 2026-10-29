@@ -2,16 +2,17 @@ package chimahon.novel.sync.kosync
 
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.await
+import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Headers
@@ -45,11 +46,14 @@ class KosyncClient(
     pullConnectTimeout: Duration = 3.seconds,
     pullReadTimeout: Duration = 4.seconds,
 ) : KosyncApi {
-    private val client = client.withTimeouts(connect = 10.seconds, read = 15.seconds)
+    // Neither client follows a redirect. OkHttp follows a 301 or 302 by turning a PUT or POST into
+    // a GET, so pushes to an address that redirects would never be stored; refused, the redirect
+    // fails the sign-in instead, and request() names the address to use.
+    private val client = client.withoutRedirects().withTimeouts(connect = 10.seconds, read = 15.seconds)
 
     // A pull holds a book back from opening, so it gives up sooner than a push, and the call
     // timeout bounds it as a whole however many addresses the server name resolves to.
-    private val pullClient = client.withTimeouts(
+    private val pullClient = client.withoutRedirects().withTimeouts(
         connect = pullConnectTimeout,
         read = pullReadTimeout,
         call = pullConnectTimeout + pullReadTimeout,
@@ -77,10 +81,10 @@ class KosyncClient(
         ) ?: return null
         return KosyncRemoteProgress(
             progress = body.string("progress"),
-            percentage = body["percentage"]?.jsonPrimitive?.doubleOrNull,
+            percentage = (body["percentage"] as? JsonPrimitive)?.doubleOrNull,
             device = body.string("device"),
             deviceId = body.string("device_id"),
-            timestamp = body["timestamp"]?.jsonPrimitive?.longOrNull,
+            timestamp = body.timestamp(),
         )
     }
 
@@ -99,8 +103,7 @@ class KosyncClient(
             put("device", device)
             put("device_id", deviceId)
         }
-        return request(credentials, "PUT", "syncs/progress", payload)
-            ?.get("timestamp")?.jsonPrimitive?.longOrNull
+        return request(credentials, "PUT", "syncs/progress", payload)?.timestamp()
     }
 
     private suspend fun request(
@@ -131,6 +134,10 @@ class KosyncClient(
             val status = response.code
             val text = response.body.string()
             when {
+                status in 300..399 -> {
+                    val location = response.header("Location") ?: "another address"
+                    throw KosyncServerException("The server redirected to $location; use that address.", status)
+                }
                 response.isSuccessful ->
                     runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
                         ?: if (text.isBlank()) {
@@ -147,14 +154,26 @@ class KosyncClient(
         }
     }
 
+    /** The field as text; null when it is absent, blank or not a JSON primitive. */
     private fun JsonObject.string(key: String): String? =
-        this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+        (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+
+    /** The field as unix seconds; a fractional value, which some servers send, is rounded down. */
+    private fun JsonObject.timestamp(): Long? =
+        (this["timestamp"] as? JsonPrimitive)?.let { it.longOrNull ?: it.doubleOrNull?.toLong() }
 
     companion object {
-        /** The app's client without request logging: the auth headers must not reach the log (same as OpdsNetwork). */
+        /**
+         * The app's client without request logging, the Cloudflare challenge interceptor or the HTTP
+         * cache: the auth headers must not reach the log, a 403 from the sync server means an unknown
+         * user, and a pull must never be served from cache.
+         */
         fun httpClient(network: NetworkHelper): OkHttpClient = network.client.newBuilder().apply {
             interceptors().removeAll { it is HttpLoggingInterceptor }
             networkInterceptors().removeAll { it is HttpLoggingInterceptor }
+            interceptors().removeAll { it is CloudflareInterceptor }
+            networkInterceptors().removeAll { it is CloudflareInterceptor }
+            cache(null)
         }.build()
 
         private val JSON = "application/json".toMediaType()
@@ -174,6 +193,10 @@ private fun OkHttpClient.withTimeouts(
     .writeTimeout(write.inWholeMilliseconds, TimeUnit.MILLISECONDS)
     .apply { if (call != null) callTimeout(call.inWholeMilliseconds, TimeUnit.MILLISECONDS) }
     .build()
+
+/** A client that hands every redirect back to the caller instead of following it. */
+private fun OkHttpClient.withoutRedirects(): OkHttpClient =
+    newBuilder().followRedirects(false).followSslRedirects(false).build()
 
 /** A typed address as a URL: `host:7200` becomes `http://host:7200`. */
 internal fun String.withHttpScheme(): String = trim().let { if (it.contains("://")) it else "http://$it" }

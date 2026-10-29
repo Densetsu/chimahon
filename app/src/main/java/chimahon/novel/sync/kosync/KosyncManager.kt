@@ -156,7 +156,9 @@ class KosyncManager(
     private suspend fun documentId(bookDir: File): String? = withContext(ioDispatcher) {
         val epub = sourceEpub(bookDir)
         if (epub == null) {
-            logcat(LogPriority.INFO) { "kosync: no source EPUB in '${bookDir.name}'; re-import the book to sync it" }
+            this@KosyncManager.logcat(LogPriority.DEBUG) {
+                "kosync: no source EPUB in '${bookDir.name}'; re-import the book to sync it"
+            }
         }
         epub?.let { runCatching { KosyncDocumentId.partialMd5(it) }.getOrNull() }
     }

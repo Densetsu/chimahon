@@ -50,8 +50,9 @@ class KosyncPreferences(private val store: PreferenceStore) {
         userKey().delete()
     }
 
+    /** Minted on first use, under a lock so that two first callers cannot mint two ids. */
     val deviceId: String
-        get() = storedDeviceId().get().ifBlank {
+        @Synchronized get() = storedDeviceId().get().ifBlank {
             UUID.randomUUID().toString().replace("-", "").uppercase().also(storedDeviceId()::set)
         }
 

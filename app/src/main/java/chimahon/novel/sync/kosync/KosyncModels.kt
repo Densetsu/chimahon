@@ -7,7 +7,10 @@ data class KosyncCredentials(
     val serverUrl: String,
     val username: String,
     val userKey: String,
-)
+) {
+    /** The key logs in like the password, so it stays out of logs and crash reports. */
+    override fun toString() = "KosyncCredentials(serverUrl=$serverUrl, username=$username, userKey=****)"
+}
 
 /** One record from `GET /syncs/progress/{document}`. Every field is optional on the wire. */
 data class KosyncRemoteProgress(

@@ -21,15 +21,16 @@ object KosyncXPointer {
     /** The 0-based raw spine index named by [xpointer], or null when it is not a DocFragment pointer. */
     fun spineIndex(xpointer: String): Int? =
         DocFragmentRegex.find(xpointer)?.let { match ->
-            (match.groupValues[1].toIntOrNull() ?: 1) - 1
+            // No index is the first fragment; one too large for an Int names none.
+            match.groupValues[1].ifEmpty { "1" }.toIntOrNull()?.minus(1)
         }?.takeIf { it >= 0 }
 
     /**
      * Pointer for the reader position [progress] (0..1) inside a chapter, mirroring how the
      * reader's `restoreProgress` picks its target text node: the node holding character
-     * `ceil(total × progress)`. The pointer anchors on the nearest enclosing leaf block whose
-     * ancestor chain is made only of container tags; anything less certain falls back up the
-     * chain, down to the chapter start.
+     * `ceil(total × progress - 1e-9)`, the epsilon absorbing floating-point overshoot. The pointer
+     * anchors on the nearest enclosing leaf block whose ancestor chain is made only of container
+     * tags; anything less certain falls back up the chain, down to the chapter start.
      */
     fun forProgress(rawSpineIndex: Int, body: Element, progress: Double): String {
         val prefix = chapterStart(rawSpineIndex)
@@ -196,13 +197,15 @@ object KosyncXPointer {
         var offset = -1
         val dot = rest.lastIndexOf('.')
         if (dot >= 0 && rest.substring(dot + 1).let { it.isNotEmpty() && it.all(Char::isDigit) }) {
-            offset = rest.substring(dot + 1).toInt()
+            // An offset too large for an Int is not a position.
+            offset = rest.substring(dot + 1).toIntOrNull() ?: return null
             rest = rest.substring(0, dot)
         }
         val steps = rest.split('/').filter { it.isNotEmpty() }.map { segment ->
             val stepMatch = StepRegex.matchEntire(segment) ?: return null
             val name = stepMatch.groupValues[1].lowercase()
-            val index = stepMatch.groupValues[2].toIntOrNull() ?: 1
+            // No index is the first sibling; one too large for an Int names no element.
+            val index = stepMatch.groupValues[2].ifEmpty { "1" }.toIntOrNull() ?: return null
             Step(name = name, index = index, isText = name == "text()", offset = -1)
         }
         if (steps.isEmpty()) return steps

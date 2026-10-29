@@ -59,7 +59,11 @@ open class NovelReaderActivity : ComponentActivity() {
     protected var isPopupActive by androidx.compose.runtime.mutableStateOf(false)
 
     protected var readerViewModel by androidx.compose.runtime.mutableStateOf<ReaderViewModel?>(null)
-    private val kosyncLifecycle = KosyncReaderLifecycle(this) { readerViewModel }
+    private val kosyncLifecycle = KosyncReaderLifecycle(
+        this,
+        bookDir = { intent.getStringExtra(EXTRA_BOOK_DIR)?.let(::File) },
+        onImported = { readerViewModel?.onPositionImported() },
+    )
     protected var bookMetadata: BookMetadata? = null
     protected var showHud by androidx.compose.runtime.mutableStateOf(false)
 

@@ -60,7 +60,7 @@ class NovelDbPositionStore(
         val sorted = chapters.getChaptersByNovelId(novel.id).sortedBy { it.chapterNumber }
         // No row for that chapter: report the position as not written instead of dropping it.
         val chapter = sorted.getOrNull(bookmark.chapterIndex) ?: return false
-        chapters.update(
+        val chapterWritten = chapters.update(
             NovelChapterUpdate(
                 id = chapter.id,
                 read = if (bookmark.progress.isNovelReadComplete()) true else null,
@@ -68,13 +68,14 @@ class NovelDbPositionStore(
                 progress = bookmark.progress.coerceIn(0.0, 1.0),
             ),
         )
+        // Either row failing to write leaves the reader resuming somewhere else, so it is reported.
         // A zero visit only moves the resume pointer; it adds no reading time.
-        history.upsertHistory(
-            chapterId = chapter.id,
-            lastRead = bookmark.lastModified ?: System.currentTimeMillis(),
-            timeRead = 0L,
-        )
-        return true
+        return chapterWritten &&
+            history.upsertHistory(
+                chapterId = chapter.id,
+                lastRead = bookmark.lastModified ?: System.currentTimeMillis(),
+                timeRead = 0L,
+            )
     }
 
     private suspend fun novelFor(bookDir: File): Novel? {
