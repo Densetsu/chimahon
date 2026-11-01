@@ -16,6 +16,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -134,10 +135,8 @@ class KosyncClient(
             val status = response.code
             val text = response.body.string()
             when {
-                status in 300..399 -> {
-                    val location = response.header("Location") ?: "another address"
-                    throw KosyncServerException("The server redirected to $location; use that address.", status)
-                }
+                status in 300..399 ->
+                    throw KosyncServerException(redirectMessage(url, path, response.header("Location")), status)
                 response.isSuccessful ->
                     runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
                         ?: if (text.isBlank()) {
@@ -155,6 +154,23 @@ class KosyncClient(
     }
 
     /** The field as text; null when it is absent, blank or not a JSON primitive. */
+    /**
+     * Names the server the redirect points at, not the redirected request: a `Location` usually
+     * repeats the request path, which pasted back into the address field would double it. A
+     * redirect that keeps the address (a trailing slash, a login page) means no sync service
+     * answers at this path.
+     */
+    private fun redirectMessage(requested: HttpUrl, path: String, location: String?): String {
+        val typed = requested.toString().removeSuffix("/$path").trimEnd('/')
+        val target = location?.trimEnd('/')?.removeSuffix("/$path")?.trimEnd('/')
+        return if (target == null || target == typed) {
+            "No KOReader sync service at $typed: the server redirected /$path elsewhere. " +
+                "Check the address (Calibre-Web Automated serves it under /kosync)."
+        } else {
+            "The server redirected to $target; use that address."
+        }
+    }
+
     private fun JsonObject.string(key: String): String? =
         (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
 

@@ -158,7 +158,7 @@ class KosyncClientTest {
                         deviceId = "DEV",
                     )
                 }
-            }.message shouldBe "The server redirected to https://host/; use that address."
+            }.message shouldBe "The server redirected to https://host; use that address."
             // Not followed: the server saw the PUT and nothing after it.
             val request = server.requests.single()
             "${request.method} ${request.path}" shouldBe "PUT /syncs/progress"
@@ -171,7 +171,21 @@ class KosyncClientTest {
         TinyHttpServer { TinyHttpServer.Response(301, headers = mapOf("Location" to "https://host/")) }.use { server ->
             assertThrows(KosyncServerException::class.java) {
                 runBlocking { client().authorize(credentials(server.url)) }
-            }.message shouldBe "The server redirected to https://host/; use that address."
+            }.message shouldBe "The server redirected to https://host; use that address."
+        }
+    }
+
+    @Test
+    fun `a redirect that keeps the address means no sync service answers there`() {
+        TinyHttpServer { request ->
+            TinyHttpServer.Response(308, ByteArray(0), mapOf("Location" to "http://${request.header("Host")}${request.path}/"))
+        }.use { server ->
+            val message = assertThrows(KosyncServerException::class.java) {
+                runBlocking { client().authorize(credentials(server.url)) }
+            }.message
+            // The Location repeats the request path; naming it would make the user paste a wrong address.
+            message shouldBe "No KOReader sync service at ${server.url}: the server redirected /users/auth elsewhere. " +
+                "Check the address (Calibre-Web Automated serves it under /kosync)."
         }
     }
 }
