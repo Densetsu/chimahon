@@ -9,11 +9,12 @@ import java.util.UUID
  * The kosync switches, the server login and this install's device id, in the app's preference
  * store.
  *
- * The password is never stored. KOReader authenticates with the MD5 of the password, and that
- * hash is what both the server and [userKey] hold. It sits under a private key, so a backup
- * leaves it out unless the user includes private settings. The device id is app state and never
- * goes into a backup, so restoring one on a second device does not make two devices look like
- * one.
+ * The password is never stored as typed, except for Calibre-Web Automated. KOReader authenticates
+ * with the MD5 of the password, and that hash is what both the server and [userKey] hold. CWA
+ * checks the password, not its hash, so for CWA the password itself is stored. Either way it sits
+ * under a private key, so a backup leaves it out unless the user includes private settings. The
+ * device id is app state and never goes into a backup, so restoring one on a second device does
+ * not make two devices look like one.
  */
 class KosyncPreferences(private val store: PreferenceStore) {
 
@@ -25,6 +26,9 @@ class KosyncPreferences(private val store: PreferenceStore) {
     /** Send this device's position when a book is left. */
     fun push() = store.getBoolean("kosync_push", true)
 
+    /** [SERVER_TYPE_KOSYNC] or [SERVER_TYPE_CWA]. */
+    fun serverType() = store.getString("kosync_server_type", SERVER_TYPE_KOSYNC)
+
     fun serverUrl() = store.getString("kosync_server_url", "")
 
     fun username() = store.getString("kosync_username", "")
@@ -35,7 +39,12 @@ class KosyncPreferences(private val store: PreferenceStore) {
 
     /** The saved login, or null until server, username and key have all been given. */
     fun credentials(): KosyncCredentials? =
-        KosyncCredentials(serverUrl().get(), username().get(), userKey().get())
+        KosyncCredentials(
+            serverUrl().get(),
+            username().get(),
+            userKey().get(),
+            basicAuth = serverType().get() == SERVER_TYPE_CWA,
+        )
             .takeIf { it.serverUrl.isNotBlank() && it.username.isNotBlank() && it.userKey.isNotBlank() }
 
     fun saveLogin(credentials: KosyncCredentials) {
@@ -57,13 +66,29 @@ class KosyncPreferences(private val store: PreferenceStore) {
         }
 
     companion object {
-        /** A login as typed. [password] is hashed here and goes no further. */
-        fun credentialsFor(serverUrl: String, username: String, password: String) = KosyncCredentials(
+        const val SERVER_TYPE_KOSYNC = "kosync"
+        const val SERVER_TYPE_CWA = "cwa"
+
+        /**
+         * A login as typed. [password] is hashed here and goes no further, unless [basicAuth]
+         * (Calibre-Web Automated), which needs the password itself.
+         */
+        fun credentialsFor(
+            serverUrl: String,
+            username: String,
+            password: String,
+            basicAuth: Boolean = false,
+        ) = KosyncCredentials(
             serverUrl = serverUrl.trim(),
             username = username.trim(),
-            userKey = MessageDigest.getInstance("MD5")
-                .digest(password.toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) },
+            userKey = if (basicAuth) {
+                password
+            } else {
+                MessageDigest.getInstance("MD5")
+                    .digest(password.toByteArray(Charsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+            },
+            basicAuth = basicAuth,
         )
     }
 }

@@ -43,6 +43,19 @@ class KosyncClientTest {
     }
 
     @Test
+    fun `a Calibre-Web Automated login sends Basic auth instead of the kosync headers`() = runBlocking<Unit> {
+        TinyHttpServer { TinyHttpServer.Response(200, """{"authorized":"OK"}""") }.use { server ->
+            client().authorize(KosyncCredentials(server.url, "sen", "hunter2", basicAuth = true))
+
+            val request = server.requests.single()
+            request.header("Authorization") shouldBe "Basic c2VuOmh1bnRlcjI="
+            request.header("x-auth-user").shouldBeNull()
+            request.header("x-auth-key").shouldBeNull()
+            request.header("Accept") shouldBe "application/vnd.koreader.v1+json"
+        }
+    }
+
+    @Test
     fun `a pull reads the position and sends the KOReader headers`() = runBlocking<Unit> {
         TinyHttpServer {
             TinyHttpServer.Response(

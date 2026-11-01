@@ -15,6 +15,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import okhttp3.Credentials
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -37,9 +38,10 @@ class KosyncServerException(message: String, val statusCode: Int? = null) : IOEx
 /**
  * [KosyncApi] over OkHttp.
  *
- * Every request carries the `x-auth-user` / `x-auth-key` pair, where the key is the MD5 of the
- * password rather than the password itself, exactly as the KOReader plugin sends it. Timestamps
- * the server returns are unix seconds.
+ * Every request carries either the `x-auth-user` / `x-auth-key` pair, where the key is the MD5 of
+ * the password rather than the password itself, exactly as the KOReader plugin sends it, or, for
+ * Calibre-Web Automated ([KosyncCredentials.basicAuth]), HTTP Basic auth with the plain password.
+ * Timestamps the server returns are unix seconds.
  */
 class KosyncClient(
     client: OkHttpClient,
@@ -126,8 +128,17 @@ class KosyncClient(
             .headers(
                 Headers.Builder()
                     .add("Accept", "application/vnd.koreader.v1+json")
-                    .addUnsafeNonAscii("x-auth-user", credentials.username)
-                    .add("x-auth-key", credentials.userKey)
+                    .apply {
+                        if (credentials.basicAuth) {
+                            add(
+                                "Authorization",
+                                Credentials.basic(credentials.username, credentials.userKey, Charsets.UTF_8),
+                            )
+                        } else {
+                            addUnsafeNonAscii("x-auth-user", credentials.username)
+                            add("x-auth-key", credentials.userKey)
+                        }
+                    }
                     .build(),
             )
             .build()

@@ -31,9 +31,11 @@ import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.PreferenceScreen
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import tachiyomi.presentation.core.components.material.Scaffold
+import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -64,6 +66,14 @@ class KosyncSyncSettingsScreen : Screen {
                     Preference.PreferenceGroup(
                         title = "Server",
                         preferenceItems = persistentListOf(
+                            Preference.PreferenceItem.ListPreference(
+                                preference = preferences.serverType(),
+                                entries = persistentMapOf(
+                                    KosyncPreferences.SERVER_TYPE_KOSYNC to "KOReader sync server (kosync)",
+                                    KosyncPreferences.SERVER_TYPE_CWA to "Calibre-Web Automated",
+                                ),
+                                title = "Server type",
+                            ),
                             Preference.PreferenceItem.CustomPreference(title = "Server") { KosyncLogin(preferences) },
                         ),
                     ),
@@ -95,6 +105,8 @@ class KosyncSyncSettingsScreen : Screen {
 private fun KosyncLogin(preferences: KosyncPreferences) {
     val scope = rememberCoroutineScope()
     val session = remember { Injekt.get<KosyncSession>() }
+    val serverType by preferences.serverType().collectAsState()
+    val isCwa = serverType == KosyncPreferences.SERVER_TYPE_CWA
     // Saveable, so what was typed survives the form scrolling out of the list. Not the password.
     var serverUrl by rememberSaveable { mutableStateOf(preferences.serverUrl().get()) }
     var username by rememberSaveable { mutableStateOf(preferences.username().get()) }
@@ -118,7 +130,7 @@ private fun KosyncLogin(preferences: KosyncPreferences) {
         message = null
         scope.launch {
             try {
-                val credentials = KosyncPreferences.credentialsFor(serverUrl, username, password)
+                val credentials = KosyncPreferences.credentialsFor(serverUrl, username, password, basicAuth = isCwa)
                 session.signIn(credentials, register)
                 password = ""
                 signedIn = true
@@ -147,7 +159,7 @@ private fun KosyncLogin(preferences: KosyncPreferences) {
             value = serverUrl,
             onValueChange = { serverUrl = it },
             label = { Text("Server URL") },
-            placeholder = { Text("https://host:7200") },
+            placeholder = { Text(if (isCwa) "https://host/kosync" else "https://host:7200") },
             singleLine = true,
             keyboardOptions = plain.copy(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth(),
@@ -173,8 +185,10 @@ private fun KosyncLogin(preferences: KosyncPreferences) {
             Button(onClick = { submit(register = false) }, enabled = !busy) {
                 Text("Sign in")
             }
-            OutlinedButton(onClick = { submit(register = true) }, enabled = !busy) {
-                Text("Register")
+            if (!isCwa) {
+                OutlinedButton(onClick = { submit(register = true) }, enabled = !busy) {
+                    Text("Register")
+                }
             }
             if (signedIn) {
                 TextButton(
@@ -198,7 +212,15 @@ private fun KosyncLogin(preferences: KosyncPreferences) {
             )
         }
         Text(
-            text = "The password is stored only as the MD5 hash KOReader authenticates with. " +
+            text = (
+                if (isCwa) {
+                    "Calibre-Web Automated checks your CWA password itself, so it is stored on this device " +
+                        "(private settings; left out of backups unless you include them). " +
+                        "Use the address of your CWA server followed by /kosync. "
+                } else {
+                    "The password is stored only as the MD5 hash KOReader authenticates with. "
+                }
+                ) +
                 "A book syncs when its EPUB file is kept in the library (books imported from a file or " +
                 "downloaded from an OPDS catalog); KOReader matches the same file by its content.",
             style = MaterialTheme.typography.bodySmall,

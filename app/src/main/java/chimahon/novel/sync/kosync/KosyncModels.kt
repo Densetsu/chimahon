@@ -2,11 +2,17 @@ package chimahon.novel.sync.kosync
 
 import kotlinx.serialization.Serializable
 
-/** A saved login: the server address and the `x-auth-user` / `x-auth-key` pair (the key is MD5 of the password). */
+/**
+ * A saved login: the server address, the username and [userKey].
+ *
+ * userKey is the MD5 of the password for a standard kosync server, or the password itself when
+ * basicAuth is set (Calibre-Web Automated).
+ */
 data class KosyncCredentials(
     val serverUrl: String,
     val username: String,
     val userKey: String,
+    val basicAuth: Boolean = false,
 ) {
     /** The key logs in like the password, so it stays out of logs and crash reports. */
     override fun toString() = "KosyncCredentials(serverUrl=$serverUrl, username=$username, userKey=****)"

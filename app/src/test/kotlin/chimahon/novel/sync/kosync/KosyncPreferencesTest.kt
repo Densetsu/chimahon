@@ -28,6 +28,24 @@ class KosyncPreferencesTest {
     }
 
     @Test
+    fun `a Calibre-Web Automated login keeps the password itself under the private key`() {
+        preferences.serverType().get() shouldBe KosyncPreferences.SERVER_TYPE_KOSYNC
+        preferences.saveLogin(KosyncPreferences.credentialsFor("https://cwa/kosync", "sen", "x"))
+        preferences.credentials()?.basicAuth shouldBe false
+        preferences.clearLogin()
+
+        preferences.serverType().set(KosyncPreferences.SERVER_TYPE_CWA)
+        val c = KosyncPreferences.credentialsFor("https://cwa/kosync", "sen", "hunter2", basicAuth = true)
+        c shouldBe KosyncCredentials("https://cwa/kosync", "sen", "hunter2", basicAuth = true)
+        c.toString() shouldNotContain "hunter2"
+
+        preferences.saveLogin(c)
+        preferences.credentials() shouldBe c
+        val userKeyEntry = store.getAll().entries.single { it.value == "hunter2" }
+        Preference.isPrivate(userKeyEntry.key) shouldBe true
+    }
+
+    @Test
     fun `a login is incomplete until server, user and key are all set`() {
         preferences.serverUrl().set("http://server")
         preferences.username().set("reader")
