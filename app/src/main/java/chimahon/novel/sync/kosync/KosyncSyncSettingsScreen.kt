@@ -60,7 +60,6 @@ class KosyncSyncSettingsScreen : Screen {
         val preferences = remember { Injekt.get<KosyncPreferences>() }
         val enabled by preferences.enabled().collectAsState()
         val direction by preferences.direction().collectAsState()
-        val autoSyncEnabled by preferences.autoSyncEnabled().collectAsState()
         val autoSyncOnOpen by preferences.autoSyncOnOpen().collectAsState()
         val autoSyncOnClose by preferences.autoSyncOnClose().collectAsState()
         val autoSyncPeriodic by preferences.autoSyncPeriodic().collectAsState()
@@ -124,15 +123,8 @@ class KosyncSyncSettingsScreen : Screen {
                     if (parts.isEmpty()) "Disabled" else parts.joinToString(", ")
                 }
 
-                SwitchPreferenceWidget(
-                    title = "Auto Sync",
-                    subtitle = autoSyncSubtitle,
-                    checked = autoSyncEnabled,
-                    onCheckedChanged = { preferences.autoSyncEnabled().set(it) },
-                )
-
                 TextPreferenceWidget(
-                    title = "Auto Sync Triggers",
+                    title = "Auto Sync",
                     subtitle = autoSyncSubtitle,
                     onPreferenceClick = { showAutoSyncDialog = true },
                 )

@@ -37,14 +37,13 @@ class KosyncSessionTest {
     }
 
     @Test
-    fun `each trigger needs Enable, a login, direction Auto, Auto Sync and its own switch`() {
+    fun `each trigger needs Enable, a login and its own switch, whatever the direction`() {
         val session = session()
         fun triggers() = listOf(session.autoOpen, session.autoForeground, session.autoClose, session.autoPeriodic)
 
         preferences.autoSyncOnOpen().set(true)
         preferences.autoSyncOnClose().set(true)
         preferences.autoSyncPeriodic().set(true)
-        preferences.autoSyncEnabled().set(true)
         triggers() shouldBe listOf(false, false, false, false)
 
         preferences.enabled().set(true)
@@ -54,21 +53,20 @@ class KosyncSessionTest {
         session.isActive shouldBe true
         triggers() shouldBe listOf(true, true, true, true)
 
+        // Direction only shapes the library action, as for the TTU sync.
         preferences.direction().set(KosyncPreferences.DIRECTION_MANUAL)
         session.isManual shouldBe true
-        triggers() shouldBe listOf(false, false, false, false)
+        triggers() shouldBe listOf(true, true, true, true)
         preferences.direction().set(KosyncPreferences.DIRECTION_AUTO)
         session.isManual shouldBe false
 
-        preferences.autoSyncEnabled().set(false)
-        triggers() shouldBe listOf(false, false, false, false)
-        preferences.autoSyncEnabled().set(true)
-
-        // The pull on coming back to a book needs no trigger of its own, like the TTU sync's.
+        // With no trigger on, Auto Sync is off, and so is the pull on coming back to a book.
         preferences.autoSyncOnOpen().set(false)
         preferences.autoSyncOnClose().set(false)
         preferences.autoSyncPeriodic().set(false)
-        triggers() shouldBe listOf(false, true, false, false)
+        triggers() shouldBe listOf(false, false, false, false)
+
+        // Any one trigger turns Auto Sync, and with it the pull on coming back, on.
         preferences.autoSyncOnOpen().set(true)
         triggers() shouldBe listOf(true, true, false, false)
         preferences.autoSyncOnOpen().set(false)

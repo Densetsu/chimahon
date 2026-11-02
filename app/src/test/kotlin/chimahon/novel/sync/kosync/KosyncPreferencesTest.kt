@@ -67,10 +67,23 @@ class KosyncPreferencesTest {
     fun `defaults mirror the TTU sync, off with direction Auto and a 10 minute interval`() {
         preferences.enabled().get() shouldBe false
         preferences.direction().get() shouldBe KosyncPreferences.DIRECTION_AUTO
-        preferences.autoSyncEnabled().get() shouldBe false
+        preferences.autoSyncEnabled shouldBe false
         preferences.autoSyncOnOpen().get() shouldBe false
         preferences.autoSyncOnClose().get() shouldBe false
         preferences.autoSyncPeriodic().get() shouldBe false
         preferences.autoSyncIntervalMins().get() shouldBe 10
+        store.getAll().keys.none { it.endsWith("kosync_auto_sync") } shouldBe true
+    }
+
+    @Test
+    fun `Auto Sync is on as soon as any trigger is`() {
+        listOf(preferences.autoSyncOnOpen(), preferences.autoSyncOnClose(), preferences.autoSyncPeriodic())
+            .forEach { trigger ->
+                preferences.autoSyncEnabled shouldBe false
+                trigger.set(true)
+                preferences.autoSyncEnabled shouldBe true
+                trigger.set(false)
+            }
+        preferences.autoSyncEnabled shouldBe false
     }
 }

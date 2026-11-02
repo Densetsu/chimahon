@@ -21,13 +21,14 @@ class KosyncPreferences(private val store: PreferenceStore) {
     fun enabled() = store.getBoolean("kosync_enabled", false)
 
     /**
-     * [DIRECTION_AUTO]: the reader's triggers sync and the newer position wins. [DIRECTION_MANUAL]:
-     * only the library selection actions sync.
+     * [DIRECTION_AUTO]: the library action resolves by the newest timestamp. [DIRECTION_MANUAL]: the
+     * library action is a menu of Auto, Import and Export. The reader's triggers do not depend on it.
      */
     fun direction() = store.getString("kosync_direction", DIRECTION_AUTO)
 
-    /** The master switch for the reader's triggers, including the pull on coming back to a book. */
-    fun autoSyncEnabled() = store.getBoolean("kosync_auto_sync", false)
+    /** Any trigger is on, as the TTU sync defines Auto Sync; it also gates the pull on resume. */
+    val autoSyncEnabled: Boolean
+        get() = autoSyncOnOpen().get() || autoSyncOnClose().get() || autoSyncPeriodic().get()
 
     /** Pull a newer position when a book opens. */
     fun autoSyncOnOpen() = store.getBoolean("kosync_auto_sync_open", false)

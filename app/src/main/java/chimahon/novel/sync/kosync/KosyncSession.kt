@@ -17,25 +17,23 @@ class KosyncSession(
     /** Sync is switched on and there is a login to use. */
     val isActive: Boolean get() = preferences.enabled().get() && preferences.credentials() != null
 
-    /** Direction Manual: only the library selection actions sync. */
+    /** Direction Manual: the library action is a menu of Auto, Import and Export. */
     val isManual: Boolean get() = preferences.direction().get() == KosyncPreferences.DIRECTION_MANUAL
 
-    private val isAuto: Boolean get() = preferences.direction().get() == KosyncPreferences.DIRECTION_AUTO
-
-    /** Sync is active, the direction is Auto and Auto Sync is on: the reader's triggers may sync. */
-    private val autoSync: Boolean get() = isActive && isAuto && preferences.autoSyncEnabled().get()
+    // The reader's triggers, like the TTU sync's: Enable (with a login) and the trigger, whatever
+    // the direction.
 
     /** Whether opening a book asks the server for a newer position. */
-    val autoOpen: Boolean get() = autoSync && preferences.autoSyncOnOpen().get()
+    val autoOpen: Boolean get() = isActive && preferences.autoSyncOnOpen().get()
 
     /** Whether coming back to a book after a long absence asks the server for a newer position. */
-    val autoForeground: Boolean get() = autoSync
+    val autoForeground: Boolean get() = isActive && preferences.autoSyncEnabled
 
     /** Whether leaving a book sends its position. */
-    val autoClose: Boolean get() = autoSync && preferences.autoSyncOnClose().get()
+    val autoClose: Boolean get() = isActive && preferences.autoSyncOnClose().get()
 
     /** Whether the position is sent every [periodicIntervalMins] minutes while reading. */
-    val autoPeriodic: Boolean get() = autoSync && preferences.autoSyncPeriodic().get()
+    val autoPeriodic: Boolean get() = isActive && preferences.autoSyncPeriodic().get()
 
     val periodicIntervalMins: Int get() = preferences.autoSyncIntervalMins().get().coerceAtLeast(1)
 
