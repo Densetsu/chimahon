@@ -1,12 +1,23 @@
 package chimahon.novel.sync.kosync
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -19,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -28,75 +40,207 @@ import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.components.AppBar
-import eu.kanade.presentation.more.settings.Preference
-import eu.kanade.presentation.more.settings.PreferenceScreen
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.persistentMapOf
+import eu.kanade.presentation.more.settings.widget.PreferenceGroupHeader
+import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
+import eu.kanade.presentation.more.settings.widget.TextPreferenceWidget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import tachiyomi.core.common.preference.Preference
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-/** Settings › Data and storage › Novels › KOReader sync. */
+/** Settings › Data and storage › Novels › KOReader sync. Laid out like the TTU sync screen. */
 class KosyncSyncSettingsScreen : Screen {
 
     @Composable
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
         val preferences = remember { Injekt.get<KosyncPreferences>() }
+        val enabled by preferences.enabled().collectAsState()
+        val direction by preferences.direction().collectAsState()
+        val autoSyncEnabled by preferences.autoSyncEnabled().collectAsState()
+        val autoSyncOnOpen by preferences.autoSyncOnOpen().collectAsState()
+        val autoSyncOnClose by preferences.autoSyncOnClose().collectAsState()
+        val autoSyncPeriodic by preferences.autoSyncPeriodic().collectAsState()
+        val autoSyncIntervalMins by preferences.autoSyncIntervalMins().collectAsState()
+        val serverType by preferences.serverType().collectAsState()
+        var directionMenuExpanded by remember { mutableStateOf(false) }
+        var serverTypeMenuExpanded by remember { mutableStateOf(false) }
+        var showAutoSyncDialog by remember { mutableStateOf(false) }
+
         Scaffold(
             topBar = { scrollBehavior ->
                 AppBar(title = "KOReader sync", navigateUp = navigator::pop, scrollBehavior = scrollBehavior)
             },
         ) { contentPadding ->
-            PreferenceScreen(
-                items = listOf(
-                    Preference.PreferenceGroup(
-                        title = "KOReader sync",
-                        preferenceItems = persistentListOf(
-                            Preference.PreferenceItem.SwitchPreference(
-                                preference = preferences.enabled(),
-                                title = "Enable",
-                                subtitle = "Sync novel reading positions with KOReader devices through a kosync server",
-                            ),
-                        ),
-                    ),
-                    Preference.PreferenceGroup(
-                        title = "Server",
-                        preferenceItems = persistentListOf(
-                            Preference.PreferenceItem.ListPreference(
-                                preference = preferences.serverType(),
-                                entries = persistentMapOf(
-                                    KosyncPreferences.SERVER_TYPE_KOSYNC to "KOReader sync server (kosync)",
-                                    KosyncPreferences.SERVER_TYPE_CWA to "Calibre-Web Automated",
-                                ),
-                                title = "Server type",
-                            ),
-                            Preference.PreferenceItem.CustomPreference(title = "Server") { KosyncLogin(preferences) },
-                        ),
-                    ),
-                    Preference.PreferenceGroup(
-                        title = "Behaviour",
-                        preferenceItems = persistentListOf(
-                            Preference.PreferenceItem.SwitchPreference(
-                                preference = preferences.autoSync(),
-                                title = "Sync on open and resume",
-                                subtitle = "Move to a newer position from another device when a book opens or " +
-                                    "comes back after a while",
-                            ),
-                            Preference.PreferenceItem.SwitchPreference(
-                                preference = preferences.push(),
-                                title = "Push progress on close",
-                                subtitle = "Send this device's position when a book is closed",
-                            ),
-                        ),
-                    ),
-                ),
-                contentPadding = contentPadding,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(contentPadding),
+            ) {
+                PreferenceGroupHeader(title = "KOReader sync")
+
+                SwitchPreferenceWidget(
+                    title = "Enable",
+                    subtitle = "Sync novel reading positions with KOReader devices through a kosync server",
+                    checked = enabled,
+                    onCheckedChanged = { preferences.enabled().set(it) },
+                )
+
+                TextPreferenceWidget(
+                    title = "Direction",
+                    subtitle = "Auto resolves by newest timestamp; Manual uses the library selection actions",
+                    widget = {
+                        Box {
+                            TextButton(onClick = { directionMenuExpanded = true }) {
+                                Text(DIRECTIONS[direction] ?: direction)
+                            }
+                            DropdownMenu(
+                                expanded = directionMenuExpanded,
+                                onDismissRequest = { directionMenuExpanded = false },
+                            ) {
+                                DIRECTIONS.forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            directionMenuExpanded = false
+                                            preferences.direction().set(value)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    },
+                )
+
+                val autoSyncSubtitle = remember(autoSyncOnOpen, autoSyncOnClose, autoSyncPeriodic) {
+                    val parts = mutableListOf<String>()
+                    if (autoSyncOnOpen) parts.add("On book open")
+                    if (autoSyncOnClose) parts.add("On book close")
+                    if (autoSyncPeriodic) parts.add("Periodic while reading")
+                    if (parts.isEmpty()) "Disabled" else parts.joinToString(", ")
+                }
+
+                SwitchPreferenceWidget(
+                    title = "Auto Sync",
+                    subtitle = autoSyncSubtitle,
+                    checked = autoSyncEnabled,
+                    onCheckedChanged = { preferences.autoSyncEnabled().set(it) },
+                )
+
+                TextPreferenceWidget(
+                    title = "Auto Sync Triggers",
+                    subtitle = autoSyncSubtitle,
+                    onPreferenceClick = { showAutoSyncDialog = true },
+                )
+
+                if (autoSyncPeriodic) {
+                    var intervalMenuExpanded by remember { mutableStateOf(false) }
+                    val intervalOptions = listOf(1, 3, 10, 15, 30)
+                    TextPreferenceWidget(
+                        title = "Periodic sync interval",
+                        subtitle = "$autoSyncIntervalMins minutes",
+                        onPreferenceClick = { intervalMenuExpanded = true },
+                        widget = {
+                            Box {
+                                DropdownMenu(
+                                    expanded = intervalMenuExpanded,
+                                    onDismissRequest = { intervalMenuExpanded = false },
+                                ) {
+                                    intervalOptions.forEach { mins ->
+                                        DropdownMenuItem(
+                                            text = { Text("$mins minutes") },
+                                            onClick = {
+                                                intervalMenuExpanded = false
+                                                preferences.autoSyncIntervalMins().set(mins)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+
+                if (showAutoSyncDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showAutoSyncDialog = false },
+                        title = { Text("Auto Sync Triggers") },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TriggerRow("On book open", autoSyncOnOpen, preferences.autoSyncOnOpen())
+                                TriggerRow("On book close", autoSyncOnClose, preferences.autoSyncOnClose())
+                                TriggerRow("Periodic while reading", autoSyncPeriodic, preferences.autoSyncPeriodic())
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showAutoSyncDialog = false }) {
+                                Text("OK")
+                            }
+                        },
+                    )
+                }
+
+                PreferenceGroupHeader(title = "Server")
+
+                TextPreferenceWidget(
+                    title = "Server type",
+                    subtitle = SERVER_TYPES[serverType] ?: serverType,
+                    onPreferenceClick = { serverTypeMenuExpanded = true },
+                    widget = {
+                        Box {
+                            DropdownMenu(
+                                expanded = serverTypeMenuExpanded,
+                                onDismissRequest = { serverTypeMenuExpanded = false },
+                            ) {
+                                SERVER_TYPES.forEach { (value, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            serverTypeMenuExpanded = false
+                                            preferences.serverType().set(value)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    },
+                )
+
+                KosyncLogin(preferences)
+            }
         }
+    }
+
+    private companion object {
+        val DIRECTIONS = linkedMapOf(
+            KosyncPreferences.DIRECTION_AUTO to "Auto",
+            KosyncPreferences.DIRECTION_MANUAL to "Manual",
+        )
+
+        val SERVER_TYPES = linkedMapOf(
+            KosyncPreferences.SERVER_TYPE_KOSYNC to "KOReader sync server (kosync)",
+            KosyncPreferences.SERVER_TYPE_CWA to "Calibre-Web Automated",
+        )
+    }
+}
+
+/** One checkbox of the Auto Sync Triggers dialog; the whole row toggles it, as in the TTU dialog. */
+@Composable
+private fun TriggerRow(label: String, checked: Boolean, preference: Preference<Boolean>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { preference.set(!checked) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { preference.set(it) })
+        Spacer(Modifier.width(8.dp))
+        Text(label)
     }
 }
 

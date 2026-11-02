@@ -3,6 +3,7 @@ package chimahon.novel.sync.kosync
 import chimahon.novel.data.BookStorage
 import chimahon.novel.data.Bookmark
 import chimahon.novel.data.FileNames
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,41 +28,122 @@ class KosyncManager(
     private val books: KosyncBookSource = EpubBookSource,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    /** Whether a book pulls when it opens or comes back to the front. */
-    val canPull: Boolean get() = session.canPull
+    /** Sync is switched on and there is a login: the library's manual actions are offered. */
+    val isActive: Boolean get() = session.isActive
+
+    /** Direction Manual: only the library selection actions sync. */
+    val isManual: Boolean get() = session.isManual
+
+    /** Whether a book pulls when it opens. */
+    val autoOpen: Boolean get() = session.autoOpen
+
+    /** Whether a book pulls when it comes back to the front after a long absence. */
+    val autoForeground: Boolean get() = session.autoForeground
 
     /** Whether a book pushes when it is left. */
-    val canPush: Boolean get() = session.canPush
+    val autoClose: Boolean get() = session.autoClose
+
+    /** Whether an open book pushes every [periodicIntervalMins] minutes. */
+    val autoPeriodic: Boolean get() = session.autoPeriodic
+
+    val periodicIntervalMins: Int get() = session.periodicIntervalMins
 
     /**
      * Moves the book to a newer position from another device and returns the bookmark it became,
      * or null when the local position stands or when the position could not be written where the
-     * reader resumes from. Callers wrap it in runCatching: a server problem must never keep a book
+     * reader resumes from. With [force] (a manual import) the server's position is taken whatever
+     * its date or device. Callers wrap it in runCatching: a server problem must never keep a book
      * from opening.
      */
-    suspend fun pull(bookDir: File): Bookmark? {
-        if (!session.canPull) return null
+    suspend fun pull(bookDir: File, force: Boolean = false): Bookmark? {
+        if (!session.isActive) return null
         val document = documentId(bookDir) ?: return null
-
-        val local = positionStore.load(bookDir)
-        // A local position that carries no date is never replaced.
-        val localSeconds = local?.let { it.lastModified?.div(1_000) ?: Long.MAX_VALUE }
-        val remote = session.fetchNewer(document, localSeconds) ?: return null
-        val percentage = remote.percentage ?: return null
-
-        val bookmark = remoteBookmark(bookDir, remote.progress, percentage, remote.timestamp) ?: return null
-        if (!positionStore.save(bookDir, bookmark)) return null
-        saveState(bookDir, KosyncBookState(bookmark.characterCount, remote.timestamp))
-        return bookmark
+        return (pullPosition(bookDir, document, force) as? PullResult.Applied)?.bookmark
     }
 
-    /** Sends the book's position unless it is (within a few characters) the one last pulled or pushed. */
-    suspend fun push(bookDir: File) {
-        if (!session.canPush) return
-        val bookmark = positionStore.load(bookDir) ?: return
+    /**
+     * Sends the book's position unless it is (within a few characters) the one last pulled or
+     * pushed. With [force] (a manual export) it is sent anyway.
+     */
+    suspend fun push(bookDir: File, force: Boolean = false) {
+        if (!session.isActive) return
+        pushPosition(bookDir, knownDocument = null, force = force)
+    }
+
+    /** The library's Auto action: a newer position from another device, else this one goes out. */
+    suspend fun sync(bookDir: File): KosyncSyncOutcome = attempt(bookDir) { document ->
+        when (val pulled = pullPosition(bookDir, document, force = false)) {
+            is PullResult.Applied -> KosyncSyncOutcome.Pulled(pulled.device)
+            PullResult.NotApplied -> KosyncSyncOutcome.Failed(NOT_APPLIED)
+            PullResult.NoRecord -> if (pushPosition(bookDir, document, force = false)) {
+                KosyncSyncOutcome.Pushed
+            } else {
+                KosyncSyncOutcome.UpToDate
+            }
+        }
+    }
+
+    /** The library's Import action: [pull] with force, reported. */
+    suspend fun importPosition(bookDir: File): KosyncSyncOutcome = attempt(bookDir) { document ->
+        when (val pulled = pullPosition(bookDir, document, force = true)) {
+            is PullResult.Applied -> KosyncSyncOutcome.Pulled(pulled.device)
+            PullResult.NotApplied -> KosyncSyncOutcome.Failed(NOT_APPLIED)
+            PullResult.NoRecord -> KosyncSyncOutcome.NoRemotePosition
+        }
+    }
+
+    /** The library's Export action: [push] with force, reported. */
+    suspend fun exportPosition(bookDir: File): KosyncSyncOutcome = attempt(bookDir) { document ->
+        if (pushPosition(bookDir, document, force = true)) {
+            KosyncSyncOutcome.Pushed
+        } else {
+            KosyncSyncOutcome.NoLocalPosition
+        }
+    }
+
+    private suspend fun attempt(
+        bookDir: File,
+        block: suspend (document: String) -> KosyncSyncOutcome,
+    ): KosyncSyncOutcome {
+        if (!session.isActive) return KosyncSyncOutcome.Failed("KOReader sync is off or signed out.")
+        val document = documentId(bookDir) ?: return KosyncSyncOutcome.NoSourceEpub
+        return try {
+            block(document)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            KosyncSyncOutcome.Failed(e.kosyncUserMessage())
+        }
+    }
+
+    private suspend fun pullPosition(bookDir: File, document: String, force: Boolean): PullResult {
+        val remote = if (force) {
+            session.fetch(document)
+        } else {
+            val local = positionStore.load(bookDir)
+            // A local position that carries no date is never replaced.
+            val localSeconds = local?.let { it.lastModified?.div(1_000) ?: Long.MAX_VALUE }
+            session.fetchNewer(document, localSeconds)
+        } ?: return PullResult.NoRecord
+        val percentage = remote.percentage ?: return PullResult.NoRecord
+
+        // A forced position may be older than the local one; dated now, it becomes the one the
+        // reader resumes from.
+        val dated = if (force) null else remote.timestamp
+        val bookmark = remoteBookmark(bookDir, remote.progress, percentage, dated) ?: return PullResult.NotApplied
+        if (!positionStore.save(bookDir, bookmark)) return PullResult.NotApplied
+        saveState(bookDir, KosyncBookState(bookmark.characterCount, remote.timestamp))
+        return PullResult.Applied(bookmark, remote.device)
+    }
+
+    /** True when a position went out. [knownDocument] saves hashing the EPUB again. */
+    private suspend fun pushPosition(bookDir: File, knownDocument: String?, force: Boolean): Boolean {
+        val bookmark = positionStore.load(bookDir) ?: return false
         val lastSynced = loadState(bookDir).lastSyncedCharacterCount
-        if (lastSynced != null && abs(lastSynced - bookmark.characterCount) <= PUSH_TOLERANCE_CHARS) return
-        val document = documentId(bookDir) ?: return
+        if (!force && lastSynced != null && abs(lastSynced - bookmark.characterCount) <= PUSH_TOLERANCE_CHARS) {
+            return false
+        }
+        val document = knownDocument ?: documentId(bookDir) ?: return false
 
         val bookInfo = withContext(ioDispatcher) { KosyncBookIndex.loadOrBuild(bookDir, books) }
         val totalCharacters = bookInfo?.characterCount ?: 0
@@ -83,6 +165,7 @@ class KosyncManager(
 
         val timestamp = session.push(document, xpointer, percentage)
         saveState(bookDir, KosyncBookState(bookmark.characterCount, timestamp))
+        return true
     }
 
     /**
@@ -181,8 +264,20 @@ class KosyncManager(
         Unit
     }
 
+    private sealed interface PullResult {
+        data class Applied(val bookmark: Bookmark, val device: String?) : PullResult
+
+        /** The server holds no position to take (or none newer, when not forced). */
+        data object NoRecord : PullResult
+
+        /** The server's position could not be converted or written where the reader resumes from. */
+        data object NotApplied : PullResult
+    }
+
     private companion object {
         /** Landing on a pulled paragraph re-saves a count a few characters off; that is not a move worth pushing. */
         const val PUSH_TOLERANCE_CHARS = 10
+
+        const val NOT_APPLIED = "The server's position could not be applied to this book."
     }
 }

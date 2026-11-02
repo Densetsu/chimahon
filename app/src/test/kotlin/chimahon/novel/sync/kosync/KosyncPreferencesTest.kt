@@ -64,9 +64,13 @@ class KosyncPreferencesTest {
     }
 
     @Test
-    fun `defaults are off, pull on, push on`() {
+    fun `defaults mirror the TTU sync, off with direction Auto and a 10 minute interval`() {
         preferences.enabled().get() shouldBe false
-        preferences.autoSync().get() shouldBe true
-        preferences.push().get() shouldBe true
+        preferences.direction().get() shouldBe KosyncPreferences.DIRECTION_AUTO
+        preferences.autoSyncEnabled().get() shouldBe false
+        preferences.autoSyncOnOpen().get() shouldBe false
+        preferences.autoSyncOnClose().get() shouldBe false
+        preferences.autoSyncPeriodic().get() shouldBe false
+        preferences.autoSyncIntervalMins().get() shouldBe 10
     }
 }

@@ -34,3 +34,39 @@ data class KosyncBookState(
     val lastSyncedCharacterCount: Int? = null,
     val lastServerTimestamp: Long? = null,
 )
+
+/** What a library sync action did, for its one-line toast ([summary]). */
+sealed interface KosyncSyncOutcome {
+    val summary: String
+
+    /** The book moved to the position [device] (its name as the server gave it) last pushed. */
+    data class Pulled(val device: String?) : KosyncSyncOutcome {
+        override val summary get() = "Pulled position from ${device?.takeIf { it.isNotBlank() } ?: "another device"}"
+    }
+
+    data object Pushed : KosyncSyncOutcome {
+        override val summary get() = "Position pushed"
+    }
+
+    data object UpToDate : KosyncSyncOutcome {
+        override val summary get() = "Already up to date"
+    }
+
+    /** An import found no position on the server. */
+    data object NoRemotePosition : KosyncSyncOutcome {
+        override val summary get() = "No position on the server for this book"
+    }
+
+    /** An export found no position here: the book was never opened. */
+    data object NoLocalPosition : KosyncSyncOutcome {
+        override val summary get() = "No reading position to push yet"
+    }
+
+    data object NoSourceEpub : KosyncSyncOutcome {
+        override val summary get() = "No EPUB file kept for this book"
+    }
+
+    data class Failed(val message: String) : KosyncSyncOutcome {
+        override val summary get() = message
+    }
+}

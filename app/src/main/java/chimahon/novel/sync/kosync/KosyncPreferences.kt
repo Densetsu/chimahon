@@ -20,11 +20,25 @@ class KosyncPreferences(private val store: PreferenceStore) {
 
     fun enabled() = store.getBoolean("kosync_enabled", false)
 
-    /** Pull a newer position when a book opens or comes back to the front. */
-    fun autoSync() = store.getBoolean("kosync_auto_sync", true)
+    /**
+     * [DIRECTION_AUTO]: the reader's triggers sync and the newer position wins. [DIRECTION_MANUAL]:
+     * only the library selection actions sync.
+     */
+    fun direction() = store.getString("kosync_direction", DIRECTION_AUTO)
+
+    /** The master switch for the reader's triggers, including the pull on coming back to a book. */
+    fun autoSyncEnabled() = store.getBoolean("kosync_auto_sync", false)
+
+    /** Pull a newer position when a book opens. */
+    fun autoSyncOnOpen() = store.getBoolean("kosync_auto_sync_open", false)
 
     /** Send this device's position when a book is left. */
-    fun push() = store.getBoolean("kosync_push", true)
+    fun autoSyncOnClose() = store.getBoolean("kosync_auto_sync_close", false)
+
+    /** Send this device's position every [autoSyncIntervalMins] minutes while reading. */
+    fun autoSyncPeriodic() = store.getBoolean("kosync_auto_sync_periodic", false)
+
+    fun autoSyncIntervalMins() = store.getInt("kosync_auto_sync_interval_mins", 10)
 
     /** [SERVER_TYPE_KOSYNC] or [SERVER_TYPE_CWA]. */
     fun serverType() = store.getString("kosync_server_type", SERVER_TYPE_KOSYNC)
@@ -68,6 +82,9 @@ class KosyncPreferences(private val store: PreferenceStore) {
     companion object {
         const val SERVER_TYPE_KOSYNC = "kosync"
         const val SERVER_TYPE_CWA = "cwa"
+
+        const val DIRECTION_AUTO = "auto"
+        const val DIRECTION_MANUAL = "manual"
 
         /**
          * A login as typed. [password] is hashed here and goes no further, unless [basicAuth]

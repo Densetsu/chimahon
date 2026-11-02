@@ -215,22 +215,24 @@ class KosyncManagerTest {
     }
 
     @Test
-    fun `nothing is asked of the server when a switch is off, signed out or the book has no source file`() {
+    fun `nothing is asked of the server when sync is off, signed out or the book has no source file`() {
         api.remote = remoteProgress(percentage = 0.75, timestamp = 2_000L)
         positions.bookmark = Bookmark(chapterIndex = 1, progress = 0.5, characterCount = 30, lastModified = 1L)
 
         preferences.enabled().set(false)
         pull()
         push()
+        runBlocking { manager().pull(bookDir, force = true) }
+        runBlocking { manager().push(bookDir, force = true) }
+        runBlocking { manager().sync(bookDir) } shouldBe
+            KosyncSyncOutcome.Failed("KOReader sync is off or signed out.")
         preferences.enabled().set(true)
         preferences.clearLogin()
         pull()
         push()
         preferences.saveLogin(KosyncCredentials("http://server", "reader", "key"))
-        preferences.autoSync().set(false)
-        pull()
-        preferences.autoSync().set(true)
         File(bookDir, "book.epub").delete()
+        runBlocking { manager().sync(bookDir) } shouldBe KosyncSyncOutcome.NoSourceEpub
         pull()
         push()
 
@@ -265,11 +267,6 @@ class KosyncManagerTest {
     @Test
     fun `an unreadable chapter pushes the chapter start, a pulled or barely moved position is not pushed`() {
         positions.bookmark = Bookmark(chapterIndex = 1, progress = 0.5, characterCount = 30, lastModified = 1L)
-        preferences.push().set(false)
-        push()
-        api.puts.size shouldBe 0
-
-        preferences.push().set(true)
         push(FakeBooks(twoChapters))
         api.puts.single().progress shouldBe "/body/DocFragment[2]/body"
 
@@ -290,5 +287,61 @@ class KosyncManagerTest {
         pull()
         push()
         api.puts.size shouldBe 2
+    }
+
+    @Test
+    fun `a manual import applies an older record from another device`() {
+        positions.bookmark = Bookmark(chapterIndex = 0, progress = 0.1, characterCount = 2, lastModified = 3_000_000L)
+        api.remote = remoteProgress(percentage = 0.75, timestamp = 2_000L)
+
+        pull().shouldBeNull()
+        positions.bookmark?.characterCount shouldBe 2
+
+        val before = System.currentTimeMillis()
+        val pulled = runBlocking { manager().pull(bookDir, force = true) }
+
+        pulled?.characterCount shouldBe 30
+        positions.bookmark shouldBe pulled
+        // Dated now, so the reader resumes from it rather than from the newer local position.
+        (pulled!!.lastModified!! >= before) shouldBe true
+
+        // Even a record this device pushed itself is taken, and the import is reported by device.
+        api.remote = remoteProgress(percentage = 0.25, timestamp = 1_000L, deviceId = preferences.deviceId)
+        runBlocking { manager().importPosition(bookDir) } shouldBe KosyncSyncOutcome.Pulled("Kobo")
+        positions.bookmark?.characterCount shouldBe 10
+
+        api.remote = null
+        runBlocking { manager().importPosition(bookDir) } shouldBe KosyncSyncOutcome.NoRemotePosition
+    }
+
+    @Test
+    fun `a manual export ignores the push tolerance`() {
+        positions.bookmark = Bookmark(chapterIndex = 1, progress = 0.5, characterCount = 30, lastModified = 1L)
+        push()
+        api.puts.size shouldBe 1
+
+        // Within 10 characters of what was just sent: an automatic push skips it, an export does not.
+        positions.bookmark = Bookmark(chapterIndex = 1, progress = 0.55, characterCount = 31, lastModified = 2L)
+        push()
+        api.puts.size shouldBe 1
+        runBlocking { manager().push(bookDir, force = true) }
+        api.puts.size shouldBe 2
+        runBlocking { manager().exportPosition(bookDir) } shouldBe KosyncSyncOutcome.Pushed
+        api.puts.size shouldBe 3
+    }
+
+    @Test
+    fun `the library's Auto action pulls a newer position, else pushes, else is up to date`() {
+        positions.bookmark = Bookmark(chapterIndex = 0, progress = 0.1, characterCount = 2, lastModified = 1_000_000L)
+        api.remote = remoteProgress(percentage = 0.75, timestamp = 2_000L)
+        runBlocking { manager().sync(bookDir) } shouldBe KosyncSyncOutcome.Pulled("Kobo")
+        api.puts.size shouldBe 0
+
+        // Landed on the pulled position: nothing newer, nothing moved.
+        runBlocking { manager().sync(bookDir) } shouldBe KosyncSyncOutcome.UpToDate
+
+        positions.bookmark = Bookmark(chapterIndex = 0, progress = 0.5, characterCount = 10, lastModified = 9_000_000L)
+        runBlocking { manager().sync(bookDir) } shouldBe KosyncSyncOutcome.Pushed
+        api.puts.size shouldBe 1
     }
 }

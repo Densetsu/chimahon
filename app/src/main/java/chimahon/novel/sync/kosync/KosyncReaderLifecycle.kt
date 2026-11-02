@@ -36,7 +36,7 @@ class KosyncReaderLifecycle(
      * this one was away. The pull writes storage, then the reader re-seeds from it.
      */
     fun pullAfterForeground() {
-        val manager = manager?.takeIf { it.canPull } ?: return
+        val manager = manager?.takeIf { it.autoForeground } ?: return
         val bookDir = bookDir() ?: return
         activity.lifecycleScope.launch {
             val pulled = withContext(Dispatchers.IO) {
@@ -50,7 +50,7 @@ class KosyncReaderLifecycle(
 
     /** Leaving: the view model has just flushed its rows, so the push sends the final position. */
     fun pushOnStop() {
-        val manager = manager?.takeIf { it.canPush } ?: return
+        val manager = manager?.takeIf { it.autoClose } ?: return
         val bookDir = bookDir() ?: return
         closingScope.launch {
             runCatching { manager.push(bookDir) }.onFailure { Log.w("NovelReader", "kosync push failed", it) }

@@ -228,7 +228,7 @@ fun ReaderScreen(
             // KOReader sync pull (blocking, for the same reason): a position pushed from
             // another device is the one the book opens at.
             val kosyncManager = runCatching { Injekt.get<KosyncManager>() }.getOrNull()
-            val pulledPosition = if (kosyncManager?.canPull == true) {
+            val pulledPosition = if (kosyncManager?.autoOpen == true) {
                 loadingMessage = "Syncing reading progress..."
                 withContext(Dispatchers.IO) {
                     runCatching { kosyncManager.pull(rootUrl) }

@@ -37,21 +37,62 @@ class KosyncSessionTest {
     }
 
     @Test
-    fun `the switches gate pulling and pushing, and neither works without a login`() {
+    fun `each trigger needs Enable, a login, direction Auto, Auto Sync and its own switch`() {
         val session = session()
+        fun triggers() = listOf(session.autoOpen, session.autoForeground, session.autoClose, session.autoPeriodic)
+
+        preferences.autoSyncOnOpen().set(true)
+        preferences.autoSyncOnClose().set(true)
+        preferences.autoSyncPeriodic().set(true)
+        preferences.autoSyncEnabled().set(true)
+        triggers() shouldBe listOf(false, false, false, false)
+
         preferences.enabled().set(true)
-        (session.canPull || session.canPush) shouldBe false
+        triggers() shouldBe listOf(false, false, false, false)
 
         preferences.saveLogin(credentials)
-        (session.canPull && session.canPush) shouldBe true
-
-        preferences.autoSync().set(false)
-        preferences.push().set(false)
-        (session.canPull || session.canPush) shouldBe false
         session.isActive shouldBe true
+        triggers() shouldBe listOf(true, true, true, true)
+
+        preferences.direction().set(KosyncPreferences.DIRECTION_MANUAL)
+        session.isManual shouldBe true
+        triggers() shouldBe listOf(false, false, false, false)
+        preferences.direction().set(KosyncPreferences.DIRECTION_AUTO)
+        session.isManual shouldBe false
+
+        preferences.autoSyncEnabled().set(false)
+        triggers() shouldBe listOf(false, false, false, false)
+        preferences.autoSyncEnabled().set(true)
+
+        // The pull on coming back to a book needs no trigger of its own, like the TTU sync's.
+        preferences.autoSyncOnOpen().set(false)
+        preferences.autoSyncOnClose().set(false)
+        preferences.autoSyncPeriodic().set(false)
+        triggers() shouldBe listOf(false, true, false, false)
+        preferences.autoSyncOnOpen().set(true)
+        triggers() shouldBe listOf(true, true, false, false)
+        preferences.autoSyncOnOpen().set(false)
+        preferences.autoSyncOnClose().set(true)
+        triggers() shouldBe listOf(false, true, true, false)
+        preferences.autoSyncOnClose().set(false)
+        preferences.autoSyncPeriodic().set(true)
+        triggers() shouldBe listOf(false, true, false, true)
 
         preferences.enabled().set(false)
         session.isActive shouldBe false
+        triggers() shouldBe listOf(false, false, false, false)
+    }
+
+    @Test
+    fun `the periodic interval is at least a minute`() {
+        val session = session()
+        session.periodicIntervalMins shouldBe 10
+        preferences.autoSyncIntervalMins().set(3)
+        session.periodicIntervalMins shouldBe 3
+        preferences.autoSyncIntervalMins().set(0)
+        session.periodicIntervalMins shouldBe 1
+        preferences.autoSyncIntervalMins().set(-5)
+        session.periodicIntervalMins shouldBe 1
     }
 
     @Test

@@ -17,11 +17,27 @@ class KosyncSession(
     /** Sync is switched on and there is a login to use. */
     val isActive: Boolean get() = preferences.enabled().get() && preferences.credentials() != null
 
-    /** Whether opening or returning to a book asks the server for a newer position. */
-    val canPull: Boolean get() = isActive && preferences.autoSync().get()
+    /** Direction Manual: only the library selection actions sync. */
+    val isManual: Boolean get() = preferences.direction().get() == KosyncPreferences.DIRECTION_MANUAL
+
+    private val isAuto: Boolean get() = preferences.direction().get() == KosyncPreferences.DIRECTION_AUTO
+
+    /** Sync is active, the direction is Auto and Auto Sync is on: the reader's triggers may sync. */
+    private val autoSync: Boolean get() = isActive && isAuto && preferences.autoSyncEnabled().get()
+
+    /** Whether opening a book asks the server for a newer position. */
+    val autoOpen: Boolean get() = autoSync && preferences.autoSyncOnOpen().get()
+
+    /** Whether coming back to a book after a long absence asks the server for a newer position. */
+    val autoForeground: Boolean get() = autoSync
 
     /** Whether leaving a book sends its position. */
-    val canPush: Boolean get() = isActive && preferences.push().get()
+    val autoClose: Boolean get() = autoSync && preferences.autoSyncOnClose().get()
+
+    /** Whether the position is sent every [periodicIntervalMins] minutes while reading. */
+    val autoPeriodic: Boolean get() = autoSync && preferences.autoSyncPeriodic().get()
+
+    val periodicIntervalMins: Int get() = preferences.autoSyncIntervalMins().get().coerceAtLeast(1)
 
     /**
      * Checks [credentials] with the server, creating the account first when [register] is set,
@@ -47,6 +63,16 @@ class KosyncSession(
         val credentials = preferences.credentials() ?: return null
         val remote = withTimeoutOrNull(pullTimeout) { api.getProgress(credentials, document) } ?: return null
         return remote.takeIf { isNewer(it, preferences.deviceId, localSeconds) }
+    }
+
+    /**
+     * The server's position for [document], whichever device put it there and whenever, or null
+     * when the server holds none. For an explicit import, so there is no deadline either: the
+     * user waits for the answer.
+     */
+    suspend fun fetch(document: String): KosyncRemoteProgress? {
+        val credentials = preferences.credentials() ?: return null
+        return api.getProgress(credentials, document)
     }
 
     /** Sends a position and returns the server's timestamp for it, unix seconds, when it gives one. */
