@@ -23,6 +23,7 @@ import chimahon.novel.data.epub.SpineItemType
 import chimahon.novel.data.epub.VirtualNovelBook
 import chimahon.novel.reader.NovelChapterLoader
 import chimahon.novel.source.LocalNovelFiles
+import chimahon.novel.sync.kosync.KosyncManager
 import chimahon.novel.sync.ttu.SyncResult
 import chimahon.novel.sync.ttu.TtuBookRef
 import chimahon.novel.sync.ttu.TtuSyncManager
@@ -309,6 +310,9 @@ class ReaderViewModel(
     private val ttuSyncManager: TtuSyncManager? by lazy {
         runCatching { Injekt.get<TtuSyncManager>() }.getOrNull()
     }
+    private val kosyncManager: KosyncManager? by lazy {
+        runCatching { Injekt.get<KosyncManager>() }.getOrNull()
+    }
     private val ttuStatsRepository: tachiyomi.domain.novel.repository.NovelReadingStatsRepository? by lazy {
         runCatching { Injekt.get<tachiyomi.domain.novel.repository.NovelReadingStatsRepository>() }.getOrNull()
     }
@@ -513,6 +517,20 @@ class ReaderViewModel(
                 if (sync.isEnabled && sync.autoSyncPeriodic && !trackingLocked && !appBackgrounded) {
                     runCatching { persistChapterRow(index, currentProgress, totalExploredCharCount) }
                     runCatching { sync.syncBook(ttuBookRef()) }
+                }
+            }
+        }
+
+        // KOReader sync periodic push (position is flushed to disk first). The interval is read
+        // each round, so a settings change applies without reopening the book.
+        scope.launch(Dispatchers.IO) {
+            val kosync = kosyncManager
+            while (kosync != null) {
+                delay(kosync.periodicIntervalMins * 60 * 1000L)
+                if (kosync.autoPeriodic && !trackingLocked && !appBackgrounded) {
+                    runCatching { persistChapterRow(index, currentProgress, totalExploredCharCount) }
+                    runCatching { kosync.push(rootUrl) }
+                        .onFailure { Log.w("NovelReader", "kosync periodic push failed", it) }
                 }
             }
         }
@@ -852,6 +870,17 @@ class ReaderViewModel(
             } finally {
                 isSyncing = false
             }
+        }
+    }
+
+    /**
+     * Another sync backend wrote a newer position into storage while this book was open (KOReader
+     * sync on resume): re-seed from it and re-render the current chapter there.
+     */
+    fun onPositionImported() {
+        scope.launch {
+            reseedFromStorage()
+            reloadCurrentChapter()
         }
     }
 

@@ -371,5 +371,21 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { chimahon.novel.sync.ttu.SyncSettingsRepository(app) }
         addSingletonFactory { chimahon.novel.sync.ttu.TtuFolderNames(app) }
         addSingletonFactory { chimahon.novel.sync.ttu.TtuSyncManager(app, get(), get()) }
+        addSingletonFactory { chimahon.novel.sync.kosync.KosyncPreferences(get()) }
+        addSingletonFactory {
+            chimahon.novel.sync.kosync.KosyncSession(
+                preferences = get(),
+                api = chimahon.novel.sync.kosync.KosyncClient(
+                    chimahon.novel.sync.kosync.KosyncClient.httpClient(get()),
+                ),
+                deviceName = "Chimahon ${android.os.Build.MODEL}",
+            )
+        }
+        addSingletonFactory {
+            chimahon.novel.sync.kosync.KosyncManager(
+                session = get(),
+                positionStore = chimahon.novel.sync.kosync.NovelDbPositionStore(get(), get(), get()),
+            )
+        }
     }
 }

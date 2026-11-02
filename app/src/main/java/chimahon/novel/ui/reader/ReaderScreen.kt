@@ -29,6 +29,7 @@ import chimahon.novel.interactor.RegisterLocalNovelHome
 import chimahon.novel.reader.assessTextDamage
 import chimahon.novel.reader.cleanBrokenBookFiles
 import chimahon.novel.source.LocalNovelFiles
+import chimahon.novel.sync.kosync.KosyncManager
 import chimahon.novel.sync.ttu.SyncDirection
 import chimahon.novel.sync.ttu.TtuBookRef
 import chimahon.novel.sync.ttu.TtuSyncManager
@@ -224,6 +225,20 @@ fun ReaderScreen(
                 }
             }
 
+            // KOReader sync pull (blocking, for the same reason): a position pushed from
+            // another device is the one the book opens at.
+            val kosyncManager = runCatching { Injekt.get<KosyncManager>() }.getOrNull()
+            val pulledPosition = if (kosyncManager?.autoOpen == true) {
+                loadingMessage = "Syncing reading progress..."
+                withContext(Dispatchers.IO) {
+                    runCatching { kosyncManager.pull(rootUrl) }
+                        .onFailure { Log.w("NovelReader", "kosync pull failed", it) }
+                        .getOrNull()
+                }
+            } else {
+                null
+            }
+
             // Constructed off-main: init does disk reads (settings, bookmark,
             // statistics) that must never block the UI thread.
             val viewModel = withContext(Dispatchers.IO) {
@@ -233,7 +248,9 @@ fun ReaderScreen(
                     settings = settings,
                     scope = scope,
                     openNovelId = novelId,
-                    openChapterIndex = chapterIndex,
+                    // A position pulled from another device wins over the chapter the launch named: the view
+                    // model then seeds from the latest history row, which the pull just wrote.
+                    openChapterIndex = if (pulledPosition != null) null else chapterIndex,
                 )
             }
             ReaderLoadState.Ready(viewModel)

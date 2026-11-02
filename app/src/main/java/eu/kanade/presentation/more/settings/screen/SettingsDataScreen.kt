@@ -819,6 +819,13 @@ object SettingsDataScreen : SearchableSettings {
                             navigator.push(TtuSyncScreen())
                         },
                     ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = "KOReader sync",
+                        subtitle = "Sync novel reading positions with KOReader devices through a kosync server",
+                        onClick = {
+                            navigator.push(chimahon.novel.sync.kosync.KosyncSyncSettingsScreen())
+                        },
+                    ),
                 ),
             ),
         )

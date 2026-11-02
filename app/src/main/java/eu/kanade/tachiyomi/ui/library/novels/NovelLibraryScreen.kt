@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.ZeroCornerSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -75,6 +76,8 @@ import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.data.BookMetadata
+import chimahon.novel.sync.kosync.KosyncManager
+import chimahon.novel.sync.kosync.KosyncSyncOutcome
 import chimahon.novel.sync.ttu.SyncDirection
 import chimahon.novel.sync.ttu.SyncMode
 import chimahon.novel.sync.ttu.SyncResult
@@ -128,6 +131,7 @@ import tachiyomi.presentation.core.screens.EmptyScreen
 import tachiyomi.presentation.core.screens.LoadingScreen
 import tachiyomi.presentation.core.util.collectAsState
 import tachiyomi.presentation.core.util.plus
+import java.io.File
 import kotlin.time.Duration.Companion.seconds
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -159,6 +163,33 @@ fun Screen.NovelLibraryScreen(
         runCatching { Injekt.get<eu.kanade.tachiyomi.data.SyncStatus>() }.getOrNull()
     }
     var ttuSyncJob by remember { mutableStateOf<Job?>(null) }
+    val kosyncManager = remember {
+        runCatching { Injekt.get<KosyncManager>() }.getOrNull()
+    }
+    var kosyncJob by remember { mutableStateOf<Job?>(null) }
+
+    /** One KOReader sync action on one book, then a one-line toast. */
+    fun runKosync(
+        book: BookMetadata,
+        reload: Boolean,
+        action: suspend (KosyncManager, File) -> KosyncSyncOutcome,
+    ) {
+        val manager = kosyncManager ?: return
+        if (kosyncJob?.isActive == true) {
+            context.toast(SYMR.strings.sync_in_progress)
+            return
+        }
+        kosyncJob = coroutineScope.launch(Dispatchers.IO) {
+            val bookDir = chimahon.novel.source.LocalNovelFiles.ensureReadableDir(context, book.id)
+                ?: chimahon.novel.data.BookStorage.getBookDirectory(context, book.id)
+            val outcome = action(manager, bookDir)
+            withContext(Dispatchers.Main) {
+                context.toast("KOReader sync: ${outcome.summary}")
+                screenModel.clearSelection()
+                if (reload) screenModel.loadLibrary()
+            }
+        }
+    }
 
     suspend fun runTtuSync(
         refs: List<TtuBookRef>,
@@ -316,6 +347,7 @@ fun Screen.NovelLibraryScreen(
             val singleBook = singleSelection?.let { id -> state.books.firstOrNull { it.id == id } }
             val ttuAvailable = ttuSyncManager?.isEnabled == true && singleBook?.title != null
             val isManualSync = ttuSyncManager?.loadSettings()?.mode == SyncMode.Manual
+            val kosyncAvailable = kosyncManager?.isActive == true && singleBook != null
             NovelLibraryBottomActionMenu(
                 visible = state.selectionMode,
                 onEditClicked = screenModel::showEditDialog,
@@ -374,6 +406,22 @@ fun Screen.NovelLibraryScreen(
                             }
                         }
                     }
+                } else {
+                    null
+                },
+                isKosyncManual = kosyncManager?.isManual == true,
+                onKosyncAuto = if (kosyncAvailable && singleBook != null) {
+                    { runKosync(singleBook, reload = true) { manager, dir -> manager.sync(dir) } }
+                } else {
+                    null
+                },
+                onKosyncImport = if (kosyncAvailable && singleBook != null) {
+                    { runKosync(singleBook, reload = true) { manager, dir -> manager.importPosition(dir) } }
+                } else {
+                    null
+                },
+                onKosyncExport = if (kosyncAvailable && singleBook != null) {
+                    { runKosync(singleBook, reload = false) { manager, dir -> manager.exportPosition(dir) } }
                 } else {
                     null
                 },
@@ -1164,6 +1212,10 @@ fun NovelLibraryBottomActionMenu(
     onSyncAuto: (() -> Unit)? = null,
     onSyncImport: (() -> Unit)? = null,
     onSyncExport: (() -> Unit)? = null,
+    isKosyncManual: Boolean = false,
+    onKosyncAuto: (() -> Unit)? = null,
+    onKosyncImport: (() -> Unit)? = null,
+    onKosyncExport: (() -> Unit)? = null,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -1270,6 +1322,56 @@ fun NovelLibraryBottomActionMenu(
                         toConfirm = false,
                         onLongClick = {},
                         onClick = onSyncAuto,
+                    )
+                }
+                if (isKosyncManual && onKosyncImport != null && onKosyncExport != null) {
+                    var kosyncExpanded by remember { mutableStateOf(false) }
+                    BottomMenuButton(
+                        title = "KOReader sync",
+                        icon = Icons.AutoMirrored.Outlined.MenuBook,
+                        toConfirm = false,
+                        onLongClick = {},
+                        onClick = { kosyncExpanded = true },
+                    ) {
+                        DropdownMenu(
+                            expanded = kosyncExpanded,
+                            onDismissRequest = { kosyncExpanded = false },
+                        ) {
+                            if (onKosyncAuto != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Auto") },
+                                    onClick = {
+                                        kosyncExpanded = false
+                                        onKosyncAuto()
+                                    },
+                                    leadingIcon = { Icon(Icons.Outlined.Sync, null) },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Import from KOReader sync") },
+                                onClick = {
+                                    kosyncExpanded = false
+                                    onKosyncImport()
+                                },
+                                leadingIcon = { Icon(Icons.Outlined.Download, null) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export to KOReader sync") },
+                                onClick = {
+                                    kosyncExpanded = false
+                                    onKosyncExport()
+                                },
+                                leadingIcon = { Icon(Icons.Outlined.Upload, null) },
+                            )
+                        }
+                    }
+                } else if (onKosyncAuto != null) {
+                    BottomMenuButton(
+                        title = "KOReader sync",
+                        icon = Icons.AutoMirrored.Outlined.MenuBook,
+                        toConfirm = false,
+                        onLongClick = {},
+                        onClick = onKosyncAuto,
                     )
                 }
                 BottomMenuButton(
